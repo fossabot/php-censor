@@ -203,11 +203,12 @@ class Build extends BaseBuild
      * Store build metadata
      *
      * @param string $key
-     * @param string $value
+     * @param mixed  $value
      */
     public function storeMeta($key, $value)
     {
         $value = json_encode($value);
+
         Factory::getStore('Build')->setMeta($this->getId(), $key, $value);
     }
 
