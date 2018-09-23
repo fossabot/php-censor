@@ -2,6 +2,8 @@
 
 namespace PHPCensor\Worker;
 
+use PHPCensor\Service\BuildService;
+use PHPCensor\Store\BuildStore;
 use PHPCensor\Store\Factory;
 use Monolog\Logger;
 use Pheanstalk\Job;
@@ -10,6 +12,8 @@ use PHPCensor\Builder;
 use PHPCensor\BuildFactory;
 use PHPCensor\Logging\BuildDBLogHandler;
 use PHPCensor\Model\Build;
+use PHPCensor\Store\ProjectStore;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * Class BuildWorker
@@ -56,14 +60,20 @@ class BuildWorker
     protected $totalJobs = 0;
 
     /**
+     * @var int
+     */
+    protected $lastPeriodical;
+
+    /**
      * @param string $host
      * @param string $queue
      */
     public function __construct($host, $queue)
     {
-        $this->host       = $host;
-        $this->queue      = $queue;
-        $this->pheanstalk = new Pheanstalk($this->host);
+        $this->lastPeriodical = 0;
+        $this->host           = $host;
+        $this->queue          = $queue;
+        $this->pheanstalk     = new Pheanstalk($this->host);
     }
 
     /**
@@ -79,13 +89,16 @@ class BuildWorker
      */
     public function startWorker()
     {
-        $this->pheanstalk->watch($this->queue);
-        $this->pheanstalk->ignore('default');
+        
         $buildStore = Factory::getStore('Build');
 
         while ($this->run) {
-            // Get a job from the queue:
-            $job = $this->pheanstalk->reserve();
+            $this->createPeriodicalBuilds();
+
+            $job = $this->pheanstalk
+                ->watch($this->queue)
+                ->ignore('default')
+                ->reserve();
 
             // Get the job data and run the job:
             $jobData = json_decode($job->getData(), true);
@@ -146,6 +159,69 @@ class BuildWorker
     public function stopWorker()
     {
         $this->run = false;
+    }
+
+    protected function createPeriodicalBuilds()
+    {
+        $currentTime = time();
+        if (($this->lastPeriodical + 60) > $currentTime) {
+            return;
+        }
+
+        $this->lastPeriodical = ($currentTime - 1);
+
+        if (file_exists(APP_DIR . 'periodical.yml')) {
+            $parser = new Yaml();
+            $yml    = file_get_contents(APP_DIR . 'periodical.yml');
+            $config = (array)$parser->parse($yml);
+
+            if ($config && !empty($config['projects'])) {
+                /** @var BuildStore $buildStore */
+                $buildStore   = Factory::getStore('Build');
+                $buildService = new BuildService($buildStore);
+
+                /** @var ProjectStore $projectStore */
+                $projectStore = Factory::getStore('Project');
+
+                foreach ($config['projects'] as $projectId => $projectConfig) {
+                    $project = $projectStore->getById($projectId);
+
+                    if (!$project || empty($projectConfig['interval']) || empty($projectConfig['branches'])) {
+                        continue;
+                    }
+
+                    $date     = new \DateTime('now');
+                    $interval = new \DateInterval($projectConfig['interval']);
+                    $date->sub($interval);
+
+                    foreach ($projectConfig['branches'] as $branch) {
+                        $latestBuild = $buildStore->getLatestBuildByProjectAndBranch($projectId, $branch);
+
+                        if ($latestBuild) {
+                            $status = (integer)$latestBuild->getStatus();
+                            if ($status === Build::STATUS_RUNNING || $status === Build::STATUS_PENDING) {
+                                continue;
+                            }
+
+                            if ($date < $latestBuild->getFinishDate()) {
+                                continue;
+                            }
+                        }
+
+                        $buildService->createBuild(
+                            $project,
+                            null,
+                            '',
+                            $branch,
+                            null,
+                            null,
+                            null,
+                            Build::SOURCE_PERIODICAL
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /**

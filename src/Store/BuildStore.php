@@ -175,6 +175,31 @@ class BuildStore extends Store
     }
 
     /**
+     * @param int    $projectId
+     * @param string $branch
+     *
+     * @return null|Build
+     *
+     * @throws \Exception
+     */
+    public function getLatestBuildByProjectAndBranch($projectId, $branch)
+    {
+        $query = 'SELECT * FROM {{build}} WHERE {{project_id}} = :project_id AND {{branch}} = :branch ORDER BY {{id}} DESC';
+        $stmt  = Database::getConnection('read')->prepareCommon($query);
+
+        $stmt->bindValue(':project_id', $projectId);
+        $stmt->bindValue(':branch', $branch);
+
+        if ($stmt->execute()) {
+            if ($data = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+                return new Build($data);
+            }
+        } else {
+            return null;
+        }
+    }
+
+    /**
      * Return an array of the latest builds for a given project.
      *
      * @param integer|null $projectId
