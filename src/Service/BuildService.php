@@ -9,7 +9,9 @@ use PHPCensor\BuildFactory;
 use PHPCensor\Model\Build;
 use PHPCensor\Model\Project;
 use PHPCensor\Store\BuildStore;
+use PHPCensor\Store\ProjectStore;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * The build service handles the creation, duplication and deletion of builds.
@@ -17,9 +19,14 @@ use Symfony\Component\Filesystem\Filesystem;
 class BuildService
 {
     /**
-     * @var \PHPCensor\Store\BuildStore
+     * @var BuildStore
      */
     protected $buildStore;
+
+    /**
+     * @var ProjectStore
+     */
+    protected $projectStore;
 
     /**
      * @var boolean
@@ -27,11 +34,16 @@ class BuildService
     public $queueError = false;
 
     /**
-     * @param BuildStore $buildStore
+     * @param BuildStore   $buildStore
+     * @param ProjectStore $projectStore
      */
-    public function __construct(BuildStore $buildStore)
+    public function __construct(
+        BuildStore $buildStore,
+        ProjectStore $projectStore
+    )
     {
-        $this->buildStore = $buildStore;
+        $this->buildStore   = $buildStore;
+        $this->projectStore = $projectStore;
     }
 
     /**
@@ -106,6 +118,59 @@ class BuildService
         }
 
         return $build;
+    }
+
+    public function createPeriodicalBuilds()
+    {
+        if (file_exists(APP_DIR . 'periodical.yml')) {
+            $parser = new Yaml();
+            $config = (array)$parser->parse(
+                file_get_contents(APP_DIR . 'periodical.yml')
+            );
+
+            if ($config && !empty($config['projects'])) {
+                /** @var ProjectStore $projectStore */
+                $projectStore = Factory::getStore('Project');
+
+                foreach ($config['projects'] as $projectId => $projectConfig) {
+                    $project = $projectStore->getById($projectId);
+
+                    if (!$project || empty($projectConfig['interval']) || empty($projectConfig['branches'])) {
+                        continue;
+                    }
+
+                    $date     = new \DateTime('now');
+                    $interval = new \DateInterval($projectConfig['interval']);
+                    $date->sub($interval);
+
+                    foreach ($projectConfig['branches'] as $branch) {
+                        $latestBuild = $this->buildStore->getLatestBuildByProjectAndBranch($projectId, $branch);
+
+                        if ($latestBuild) {
+                            $status = (integer)$latestBuild->getStatus();
+                            if ($status === Build::STATUS_RUNNING || $status === Build::STATUS_PENDING) {
+                                continue;
+                            }
+
+                            if ($date < $latestBuild->getFinishDate()) {
+                                continue;
+                            }
+                        }
+
+                        $this->createBuild(
+                            $project,
+                            null,
+                            '',
+                            $branch,
+                            null,
+                            null,
+                            null,
+                            Build::SOURCE_PERIODICAL
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /**

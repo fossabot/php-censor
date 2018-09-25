@@ -1,9 +1,6 @@
 Periodical builds
 =================
 
-**Periodical builds works only with [worker](workers/worker.md)! Cronjob build task `php-censor:run-builds` isn't 
-supported**
-
 Periodical builds config example (`<php-censor-path>/app/periodical.yml`):
 
 ```yaml

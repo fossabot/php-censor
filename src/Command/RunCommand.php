@@ -6,7 +6,9 @@ use Monolog\Logger;
 use PHPCensor\Logging\BuildDBLogHandler;
 use PHPCensor\Logging\LoggedBuildContextTidier;
 use PHPCensor\Logging\OutputLogHandler;
+use PHPCensor\Service\BuildService;
 use PHPCensor\Store\BuildStore;
+use PHPCensor\Store\ProjectStore;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -90,7 +92,14 @@ class RunCommand extends Command
 
         /** @var BuildStore $buildStore */
         $buildStore = Factory::getStore('Build');
-        $result     = $buildStore->getByStatus(Build::STATUS_PENDING, $this->maxBuilds);
+
+        /** @var ProjectStore $projectStore */
+        $projectStore = Factory::getStore('Project');
+
+        $buildService = new BuildService($buildStore, $projectStore);
+        $buildService->createPeriodicalBuilds();
+
+        $result = $buildStore->getByStatus(Build::STATUS_PENDING, $this->maxBuilds);
 
         $this->logger->addInfo(sprintf('Found %d builds', count($result['items'])));
 

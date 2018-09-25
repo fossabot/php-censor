@@ -13,7 +13,6 @@ use PHPCensor\BuildFactory;
 use PHPCensor\Logging\BuildDBLogHandler;
 use PHPCensor\Model\Build;
 use PHPCensor\Store\ProjectStore;
-use Symfony\Component\Yaml\Yaml;
 
 /**
  * Class BuildWorker
@@ -170,58 +169,15 @@ class BuildWorker
 
         $this->lastPeriodical = ($currentTime - 1);
 
-        if (file_exists(APP_DIR . 'periodical.yml')) {
-            $parser = new Yaml();
-            $yml    = file_get_contents(APP_DIR . 'periodical.yml');
-            $config = (array)$parser->parse($yml);
+        /** @var BuildStore $buildStore */
+        $buildStore   = Factory::getStore('Build');
+        
+        /** @var ProjectStore $projectStore */
+        $projectStore = Factory::getStore('Project');
 
-            if ($config && !empty($config['projects'])) {
-                /** @var BuildStore $buildStore */
-                $buildStore   = Factory::getStore('Build');
-                $buildService = new BuildService($buildStore);
-
-                /** @var ProjectStore $projectStore */
-                $projectStore = Factory::getStore('Project');
-
-                foreach ($config['projects'] as $projectId => $projectConfig) {
-                    $project = $projectStore->getById($projectId);
-
-                    if (!$project || empty($projectConfig['interval']) || empty($projectConfig['branches'])) {
-                        continue;
-                    }
-
-                    $date     = new \DateTime('now');
-                    $interval = new \DateInterval($projectConfig['interval']);
-                    $date->sub($interval);
-
-                    foreach ($projectConfig['branches'] as $branch) {
-                        $latestBuild = $buildStore->getLatestBuildByProjectAndBranch($projectId, $branch);
-
-                        if ($latestBuild) {
-                            $status = (integer)$latestBuild->getStatus();
-                            if ($status === Build::STATUS_RUNNING || $status === Build::STATUS_PENDING) {
-                                continue;
-                            }
-
-                            if ($date < $latestBuild->getFinishDate()) {
-                                continue;
-                            }
-                        }
-
-                        $buildService->createBuild(
-                            $project,
-                            null,
-                            '',
-                            $branch,
-                            null,
-                            null,
-                            null,
-                            Build::SOURCE_PERIODICAL
-                        );
-                    }
-                }
-            }
-        }
+        $buildService = new BuildService($buildStore, $projectStore);
+        
+        $buildService->createPeriodicalBuilds();
     }
 
     /**

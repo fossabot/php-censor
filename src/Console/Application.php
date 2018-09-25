@@ -48,6 +48,8 @@ LOGO;
      * @param Config $applicationConfig
      *
      * @return Logger
+     *
+     * @throws \Exception
      */
     protected function initLogger(Config $applicationConfig)
     {
@@ -68,10 +70,12 @@ LOGO;
     }
 
     /**
-     * Constructor.
+     * Application constructor.
      *
-     * @param string $name    The name of the application
-     * @param string $version The version of the application
+     * @param string $name
+     * @param string $version
+     *
+     * @throws \Exception
      */
     public function __construct($name = 'PHP Censor', $version = 'UNKNOWN')
     {
@@ -144,7 +148,7 @@ LOGO;
         $this->add(new RebuildCommand($logger));
         $this->add(new InstallCommand());
         $this->add(new CreateAdminCommand($userStore));
-        $this->add(new CreateBuildCommand($projectStore, new BuildService($buildStore)));
+        $this->add(new CreateBuildCommand($projectStore, new BuildService($buildStore, $projectStore)));
         $this->add(new WorkerCommand($logger));
         $this->add(new RebuildQueueCommand($logger));
         $this->add(new CheckLocalizationCommand());
@@ -167,14 +171,6 @@ LOGO;
      */
     public function getLongVersion()
     {
-        if ('UNKNOWN' !== $this->getName()) {
-            if ('UNKNOWN' !== $this->getVersion()) {
-                return sprintf('<info>%s</info> v%s', $this->getName(), $this->getVersion());
-            }
-
-            return sprintf('<info>%s</info>', $this->getName());
-        }
-
-        return '<info>Console Tool</info>';
+        return sprintf('<info>%s</info> v%s', $this->getName(), $this->getVersion());
     }
 }
